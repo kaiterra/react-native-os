@@ -119,91 +119,93 @@ public final class RNOS extends ReactContextBaseJavaModule implements LifecycleE
     private Bundle getNetworkInterfaces() throws SocketException {
         Bundle ifaces = new Bundle();
         Enumeration<NetworkInterface> list = NetworkInterface.getNetworkInterfaces();
-        while (list.hasMoreElements()) {
-            final NetworkInterface iface = list.nextElement();
-            String mac = "00:00:00:00:00:00";
-            boolean internal = true;
+        if (list != null) {
+            while (list.hasMoreElements()) {
+                final NetworkInterface iface = list.nextElement();
+                String mac = "00:00:00:00:00:00";
+                boolean internal = true;
 
-            try {
-                internal = iface.isLoopback();
-            } catch (SocketException se) {
-                // keep calm and query on
-                se.printStackTrace();
-            }
+                try {
+                    internal = iface.isLoopback();
+                } catch (SocketException se) {
+                    // keep calm and query on
+                    se.printStackTrace();
+                }
 
-            try {
-                final byte[] macBytes = iface.getHardwareAddress();
+                try {
+                    final byte[] macBytes = iface.getHardwareAddress();
 
-                if (macBytes != null) {
-                    final StringBuilder sb = new StringBuilder();
-                    for (int i = 0; i < macBytes.length; i++) {
-                        sb.append(String.format("%02X%s", macBytes[i], (i < macBytes.length - 1) ? ":" : ""));
+                    if (macBytes != null) {
+                        final StringBuilder sb = new StringBuilder();
+                        for (int i = 0; i < macBytes.length; i++) {
+                            sb.append(String.format("%02X%s", macBytes[i], (i < macBytes.length - 1) ? ":" : ""));
+                        }
+                        mac = sb.toString();
                     }
-                    mac = sb.toString();
-                }
-            } catch (SocketException se) {
-                // keep calm and query on
-                se.printStackTrace();
-            }
-
-            for (InterfaceAddress address : iface.getInterfaceAddresses()) {
-                Bundle ifaceInfo = new Bundle();
-
-                ifaceInfo.putBoolean("internal", internal);
-                ifaceInfo.putString("mac", mac);
-
-                InetAddress inet = address.getAddress();
-
-                // getHostAddress adds %scope_id for ipv6
-                String hostAddress = inet.getHostAddress();
-                int end = hostAddress.indexOf("%");
-                if (end > -1) {
-                    hostAddress = hostAddress.substring(0, end);
-                }
-                ifaceInfo.putString("address", hostAddress);
-                if (inet instanceof Inet6Address) {
-                    ifaceInfo.putString("family", "IPv6");
-                    ifaceInfo.putInt("scopeid", ((Inet6Address) inet).getScopeId());
-                } else {
-                    ifaceInfo.putString("family", "IPv4");
+                } catch (SocketException se) {
+                    // keep calm and query on
+                    se.printStackTrace();
                 }
 
-                String netmask = "";
-                short prefixLength = address.getNetworkPrefixLength();
-                if (inet instanceof Inet4Address) {
-                    final int value = 0xffffffff << (32 - prefixLength);
-                    netmask = String.format("%d.%d.%d.%d", (value >> 24) & 0xFF,
-                            (value >> 16) & 0xFF,  (value >> 8) & 0xFF, value & 0xFF);
-                } else {
-                    final long[] value = new long[] { 0xffffffffffffffffl, 0xffffffffffffffffl };
-                    if (prefixLength <= 64) {
-                        value[1] = value[1] << (64 - prefixLength);
+                for (InterfaceAddress address : iface.getInterfaceAddresses()) {
+                    Bundle ifaceInfo = new Bundle();
+
+                    ifaceInfo.putBoolean("internal", internal);
+                    ifaceInfo.putString("mac", mac);
+
+                    InetAddress inet = address.getAddress();
+
+                    // getHostAddress adds %scope_id for ipv6
+                    String hostAddress = inet.getHostAddress();
+                    int end = hostAddress.indexOf("%");
+                    if (end > -1) {
+                        hostAddress = hostAddress.substring(0, end);
+                    }
+                    ifaceInfo.putString("address", hostAddress);
+                    if (inet instanceof Inet6Address) {
+                        ifaceInfo.putString("family", "IPv6");
+                        ifaceInfo.putInt("scopeid", ((Inet6Address) inet).getScopeId());
                     } else {
-                        value[1] = 0;
-                        value[0] = value[0] << (64 - (prefixLength - 64));
+                        ifaceInfo.putString("family", "IPv4");
                     }
 
-                    for (long crtLong : value) { //for every long: it should be two of them
-                        for (int i = 0; i < 4; i++) { //we display in total 4 parts for every long
-                            netmask += (netmask.length() == 0 ? "" : ":") +
-                                ((crtLong & 0xFFFF) == 0 ? "" : Long.toHexString(crtLong & 0xFFFF));
-                            crtLong = crtLong >> 16;
+                    String netmask = "";
+                    short prefixLength = address.getNetworkPrefixLength();
+                    if (inet instanceof Inet4Address) {
+                        final int value = 0xffffffff << (32 - prefixLength);
+                        netmask = String.format("%d.%d.%d.%d", (value >> 24) & 0xFF,
+                                (value >> 16) & 0xFF,  (value >> 8) & 0xFF, value & 0xFF);
+                    } else {
+                        final long[] value = new long[] { 0xffffffffffffffffl, 0xffffffffffffffffl };
+                        if (prefixLength <= 64) {
+                            value[1] = value[1] << (64 - prefixLength);
+                        } else {
+                            value[1] = 0;
+                            value[0] = value[0] << (64 - (prefixLength - 64));
+                        }
+
+                        for (long crtLong : value) { //for every long: it should be two of them
+                            for (int i = 0; i < 4; i++) { //we display in total 4 parts for every long
+                                netmask += (netmask.length() == 0 ? "" : ":") +
+                                    ((crtLong & 0xFFFF) == 0 ? "" : Long.toHexString(crtLong & 0xFFFF));
+                                crtLong = crtLong >> 16;
+                            }
                         }
                     }
+
+                    ifaceInfo.putString("netmask", netmask);
+
+                    Bundle[] bundles = (Bundle[]) ifaces.getParcelableArray(iface.getDisplayName());
+                    if (bundles == null) {
+                        bundles = new Bundle[] { ifaceInfo };
+                    } else {
+                        Bundle[] tmp = Arrays.copyOf(bundles, bundles.length + 1);
+                        tmp[bundles.length] = ifaceInfo;
+                        bundles = tmp;
+                    }
+
+                    ifaces.putParcelableArray(iface.getDisplayName(), bundles);
                 }
-
-                ifaceInfo.putString("netmask", netmask);
-
-                Bundle[] bundles = (Bundle[]) ifaces.getParcelableArray(iface.getDisplayName());
-                if (bundles == null) {
-                    bundles = new Bundle[] { ifaceInfo };
-                } else {
-                    Bundle[] tmp = Arrays.copyOf(bundles, bundles.length + 1);
-                    tmp[bundles.length] = ifaceInfo;
-                    bundles = tmp;
-                }
-
-                ifaces.putParcelableArray(iface.getDisplayName(), bundles);
             }
         }
 
